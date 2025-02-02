@@ -1,0 +1,12 @@
+[package]
+name = "listener-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy = { version = "0.11.0", features = ["full"] }
+alloy-provider = { version = "0.11.0", features = ["trace-api"] }
+alloy-rpc-types-trace = "0.11.0"
+dotenv = "0.15.0"
+futures-util = "0.3.31"
+tokio = { version = "1.43.0", features = ["full"] }
