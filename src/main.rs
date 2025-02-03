@@ -1,9 +1,9 @@
 use futures_util::StreamExt;
 use providers::Providers;
-use token::TokensHandler;
+use tokens_handler::TokensHandler;
 
 mod providers;
-mod token;
+mod tokens_handler;
 
 #[tokio::main]
 async fn main() {
@@ -18,6 +18,6 @@ async fn main() {
         let block = providers.get_block(header.number).await;
         let transactions = block.transactions.into_transactions();
         tokens_handler.handle(transactions).await;
-        println!("New Block Found {}", block.header.number);
+        println!("Block Number {} Handled", block.header.number);
     }
 }
