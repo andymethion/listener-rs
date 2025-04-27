@@ -1,12 +1,10 @@
 use std::vec::IntoIter;
 
 use alloy::{
-    primitives::{Address, FixedBytes, U256},
+    primitives::{Address, U256},
     rpc::types::Transaction,
     sol,
-    transports::{RpcError, TransportErrorKind},
 };
-use alloy_provider::ext::TraceApi;
 use alloy_rpc_types_trace::parity::{LocalizedTransactionTrace, TraceOutput};
 use tokio::join;
 
@@ -14,12 +12,12 @@ use crate::providers::Providers;
 
 sol!(
     #[sol(rpc)]
-    Erc20Abi,
+    Erc20,
     "src/abis/Erc20Abi.json",
 );
 
-struct Token {
-    author: Address,
+#[derive(Debug)]
+pub struct Token {
     address: Address,
     name: String,
     symbol: String,
@@ -33,18 +31,7 @@ pub struct TokensHandler<'a> {
 
 impl<'a> TokensHandler<'a> {
     pub fn new(providers: &'a Providers) -> Self {
-        return Self { providers };
-    }
-
-    async fn get_localized_transaction_traces(
-        &self,
-        transaction_hash: FixedBytes<32>,
-    ) -> Result<Vec<LocalizedTransactionTrace>, RpcError<TransportErrorKind>> {
-        return self
-            .providers
-            .http_provider
-            .trace_transaction(transaction_hash)
-            .await;
+        return TokensHandler { providers };
     }
 
     fn get_contract_address(
@@ -62,30 +49,53 @@ impl<'a> TokensHandler<'a> {
         };
     }
 
-    async fn get_token(
-        &self,
-        transaction_from: Address,
-        contract_address: Address,
-    ) -> Option<Token> {
-        let contract = Erc20Abi::new(contract_address, self.providers.http_provider.clone());
+    async fn get_name(&self, address: Address) -> Option<String> {
+        let contract = Erc20::new(address, self.providers.http_provider.clone());
+        return contract.name().call().await.ok().map(|name| name._0);
+    }
 
+    async fn get_symbol(&self, address: Address) -> Option<String> {
+        let contract = Erc20::new(address, self.providers.http_provider.clone());
+        return contract.symbol().call().await.ok().map(|symbol| symbol._0);
+    }
+
+    async fn get_decimals(&self, address: Address) -> Option<u8> {
+        let contract = Erc20::new(address, self.providers.http_provider.clone());
+        return contract
+            .decimals()
+            .call()
+            .await
+            .ok()
+            .map(|decimals| decimals._0);
+    }
+
+    async fn get_total_supply(&self, address: Address) -> Option<U256> {
+        let contract = Erc20::new(address, self.providers.http_provider.clone());
+        return contract
+            .totalSupply()
+            .call()
+            .await
+            .ok()
+            .map(|total_supply| total_supply._0);
+    }
+
+    pub async fn get_token(&self, address: Address) -> Option<Token> {
         let (name, symbol, decimals, total_supply) = join!(
-            async { contract.name().call().await },
-            async { contract.symbol().call().await },
-            async { contract.decimals().call().await },
-            async { contract.totalSupply().call().await },
+            self.get_name(address),
+            self.get_symbol(address),
+            self.get_decimals(address),
+            self.get_total_supply(address),
         );
 
         let (name, symbol, decimals, total_supply) = match (name, symbol, decimals, total_supply) {
-            (Ok(name), Ok(symbol), Ok(decimals), Ok(total_supply)) => {
-                (name._0, symbol._0, decimals._0, total_supply._0)
+            (Some(name), Some(symbol), Some(decimals), Some(total_supply)) => {
+                (name, symbol, decimals, total_supply)
             }
             _ => return None,
         };
 
         return Some(Token {
-            author: transaction_from,
-            address: contract_address,
+            address,
             name,
             symbol,
             decimals,
@@ -93,31 +103,27 @@ impl<'a> TokensHandler<'a> {
         });
     }
 
-    fn print_token(&self, token: Token) {
-        println!("");
-        println!("New Token Found");
-        println!("Author: {}", token.author);
+    fn handle_token(&self, transaction_from: Address, token: Token) {
+        println!();
+        println!("New Token Handled");
+        println!("Author: {}", transaction_from);
         println!("Address: {}", token.address);
         println!("Name: {}", token.name);
         println!("Symbol: {}", token.symbol);
         println!("Decimals: {}", token.decimals);
         println!("Total Supply: {}", token.total_supply);
-        println!("");
-    }
-
-    fn handle_token(&self, token: Token) {
-        self.print_token(token);
+        println!();
     }
 
     async fn handle_contract_address(&self, transaction_from: Address, contract_address: Address) {
-        let token = self.get_token(transaction_from, contract_address).await;
+        let token = self.get_token(contract_address).await;
 
         let token = match token {
             Some(token) => token,
             _ => return,
         };
 
-        self.handle_token(token);
+        self.handle_token(transaction_from, token);
     }
 
     async fn handle_localized_transaction_trace(
@@ -138,13 +144,9 @@ impl<'a> TokensHandler<'a> {
 
     async fn handle_transaction(&self, transaction: Transaction) {
         let localized_transaction_traces = self
+            .providers
             .get_localized_transaction_traces(transaction.info().hash.unwrap())
             .await;
-
-        let localized_transaction_traces = match localized_transaction_traces {
-            Ok(localized_transaction_traces) => localized_transaction_traces,
-            _ => return,
-        };
 
         for localized_transaction_trace in localized_transaction_traces {
             self.handle_localized_transaction_trace(transaction.from, localized_transaction_trace)
