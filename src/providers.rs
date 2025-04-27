@@ -91,14 +91,4 @@ impl Providers {
         let filter = Filter::new().at_block_hash(block_hash);
         return self.http_provider.get_logs(&filter).await.unwrap();
     }
-
-    pub async fn get_transaction_from(&self, transaction_hash: TxHash) -> Address {
-        return self
-            .http_provider
-            .get_transaction_by_hash(transaction_hash)
-            .await
-            .unwrap()
-            .unwrap()
-            .from;
-    }
 }
